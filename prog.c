@@ -38,6 +38,7 @@ char message[BUF_SIZE];
 char buffer[BUF_SIZE];
 socklen_t addr_len = sizeof(server_addr);
 int estado_reles[4] = {0, 0, 0, 0}; // 0 = apagado, 1 = encendido
+int grupo = 0;
 
 // Menú principal
 int main() {
@@ -48,21 +49,33 @@ int main() {
         CLEAR_SCREEN(); // Limpiar pantalla al entrar al menú
 
         printf("\n--- Menu de Comunicaciones---\n");
-        printf("1. Comunicacion por Wi-Fi\n");
-        printf("2. Comunicacion por Serial\n");
+        printf("1. Comunicacion por Wi-Fi (Grupo Reles 1)\n");
+        printf("2. Comunicacion por Wi-Fi (Grupo Reles 2)\n");
+        printf("3. Comunicacion por Serial\n");
         printf("0. Salir\n");
         printf("Seleccione una opcion: ");
         scanf("%d", &choice);
 
         switch (choice) {
             case 1:
+                grupo = 1;
                 if (pthread_create(&wifi_thread, NULL, wifi_communication, NULL) != 0) {
                     perror("Failed to create Wi-Fi thread");
                 } else {
                     pthread_join(wifi_thread, NULL); // Espera a que el hilo termine
+                    grupo = 0;
                 }
                 break;
-            case 2:
+             case 2:
+                grupo = 2;
+                if (pthread_create(&wifi_thread, NULL, wifi_communication, NULL) != 0) {
+                    perror("Failed to create Wi-Fi thread");
+                } else {
+                    pthread_join(wifi_thread, NULL); // Espera a que el hilo termine
+                    grupo = 0;
+                }
+                break;
+            case 3:
                 if (pthread_create(&serial_thread, NULL, serial_communication, NULL) != 0) {
                     perror("Failed to create Serial thread");
                 } else {
@@ -151,7 +164,8 @@ void *wifi_communication(void *arg) {
     configurar_reles();
 
     // Actualizar el string del comando con los valores de los relés
-    snprintf(comando, BUF_SIZE, "WI:%d,%d,%d,%d", 
+    snprintf(comando, BUF_SIZE, "W%d:%d,%d,%d,%d", 
+             grupo,
              estado_reles[0], 
              estado_reles[1], 
              estado_reles[2], 
