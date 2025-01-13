@@ -34,6 +34,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define GRUPO_1 1
+#define GRUPO_2 2
+volatile uint8_t grupo;
 
 /* USER CODE END PD */
 
@@ -57,14 +60,14 @@ const osThreadAttr_t defaultTask_attributes = {
 osThreadId_t Transmit_LEDHandle;
 const osThreadAttr_t Transmit_LED_attributes = {
   .name = "Transmit_LED",
-  .stack_size = 3000 * 4,
+  .stack_size = 2500 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for TaskComunicacio */
 osThreadId_t TaskComunicacioHandle;
 const osThreadAttr_t TaskComunicacio_attributes = {
   .name = "TaskComunicacio",
-  .stack_size = 128 * 4,
+  .stack_size = 1000 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for myQueue01 */
@@ -81,6 +84,11 @@ const osMutexAttr_t MutexComunicacion_attributes = {
 osEventFlagsId_t Data_receivedHandle;
 const osEventFlagsAttr_t Data_received_attributes = {
   .name = "Data_received"
+};
+/* Definitions for Data_ready */
+osEventFlagsId_t Data_readyHandle;
+const osEventFlagsAttr_t Data_ready_attributes = {
+  .name = "Data_ready"
 };
 /* USER CODE BEGIN PV */
 
@@ -270,6 +278,9 @@ int main(void)
   /* creation of Data_received */
   Data_receivedHandle = osEventFlagsNew(&Data_received_attributes);
 
+  /* creation of Data_ready */
+  Data_readyHandle = osEventFlagsNew(&Data_ready_attributes);
+
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
   /* USER CODE END RTOS_EVENTS */
@@ -421,10 +432,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_8, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, LD2_Pin|Rele_1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10|GPIO_PIN_4|GPIO_PIN_5, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, Rele_2_Pin|Rele_3_Pin|Rele_4_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
@@ -432,19 +443,23 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LD2_Pin PA8 */
-  GPIO_InitStruct.Pin = LD2_Pin|GPIO_PIN_8;
+  /*Configure GPIO pins : LD2_Pin Rele_1_Pin */
+  GPIO_InitStruct.Pin = LD2_Pin|Rele_1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB10 PB4 PB5 */
-  GPIO_InitStruct.Pin = GPIO_PIN_10|GPIO_PIN_4|GPIO_PIN_5;
+  /*Configure GPIO pins : Rele_2_Pin Rele_3_Pin Rele_4_Pin */
+  GPIO_InitStruct.Pin = Rele_2_Pin|Rele_3_Pin|Rele_4_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
@@ -495,9 +510,12 @@ void StartDefaultTask(void *argument)
 void StartTaskLTx_LED(void *argument)
 {
   /* USER CODE BEGIN StartTaskLTx_LED */
+	uint8_t grupo_recibido;
+	uint8_t valores_relays_recv[4]={0};
 	char rx_data;
 	char command_buffer[16] = {0};
 	uint8_t buffer_pos = 0;
+	grupo = GRUPO_1;
 
 	inicializar_reles();
 
@@ -518,15 +536,24 @@ void StartTaskLTx_LED(void *argument)
 	            {
 	                command_buffer[buffer_pos] = '\0'; // Termina la cadena
 
+	                int grupo_recibido = 0;
 	                // Procesar el comando recibido
-	                if (sscanf(command_buffer, "WI:%d,%d,%d,%d",
-	                           &valores_relays[0], &valores_relays[1],
-	                           &valores_relays[2], &valores_relays[3]) == 4)
+	                if (sscanf(command_buffer, "W%d:%d,%d,%d,%d",&grupo_recibido,
+	                           &valores_relays_recv[0], &valores_relays_recv[1],
+	                           &valores_relays_recv[2], &valores_relays_recv[3]) == 5)
 	                {
 	                    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
 
+	                    if(grupo_recibido==grupo)
+	                    {
+	                    	for (int i = 0; i < 4; i++)
+	                    	    {
+	                    	        valores_relays[i] = valores_relays_recv[i];
+	                    	    }
+	                    }
+
 	                    // Enviar respuesta por UART2
-	                    //HAL_UART_Transmit(&huart2, (uint8_t *)command_buffer, strlen(command_buffer), HAL_MAX_DELAY); //Crashea
+	                    HAL_UART_Transmit(&huart2, (uint8_t *)command_buffer, strlen(command_buffer), HAL_MAX_DELAY); //Crashea
 
 	                    // Activar bandera de evento
 	                    osEventFlagsSet(Data_receivedHandle, 0x01);
@@ -542,7 +569,7 @@ void StartTaskLTx_LED(void *argument)
 	        }
 
 	        // Verificar bandera de evento para procesar relés
-	        if (osEventFlagsGet(Data_receivedHandle) == 1)
+	        if (osEventFlagsGet(Data_receivedHandle) == 0x01)
 	        {
 	            osMutexAcquire(MutexComunicacionHandle, osWaitForever);
 
@@ -558,6 +585,7 @@ void StartTaskLTx_LED(void *argument)
 	                    rele_off(i + 1); // Apagar relés
 	                }
 	            }
+	            osEventFlagsSet(Data_readyHandle, 0x02);
 
 	            osEventFlagsClear(Data_receivedHandle, 0x01);
 	            osMutexRelease(MutexComunicacionHandle);
@@ -579,11 +607,32 @@ void StartTaskCOMMS(void *argument)
 {
   /* USER CODE BEGIN StartTaskCOMMS */
   /* Infinite loop */
-  for(;;)
-  {
+	for (;;)
+	{
+	    if (osEventFlagsGet(Data_readyHandle) == 0x02)
+	    {
+	        osMutexAcquire(MutexComunicacionHandle, osWaitForever);
 
-    osDelay(1);
-  }
+	        // Añadir "ST:" al inicio del buffer
+	        int pos = 0; // Posición en el buffer
+	        pos += sprintf((char*)tx_buffer, "ST:");
+
+	        // Añadir los valores de los relés al buffer
+	        for (int i = 0; i < 4; i++)
+	        {
+	            pos += sprintf((char*)tx_buffer + pos, "%lu,", valores_relays[i]);
+	        }
+
+	        // Transmitir el buffer completo
+	        HAL_UART_Transmit_IT(&huart2, (uint8_t*)tx_buffer, pos);
+
+	        osEventFlagsClear(Data_readyHandle, 0x02);
+	        osMutexRelease(MutexComunicacionHandle);
+
+	        osDelay(1000); // Tiempo de espera entre procesamientos de datos
+	    }
+	    osDelay(1); // Evitar bloqueo innecesario
+	}
   /* USER CODE END StartTaskCOMMS */
 }
 
