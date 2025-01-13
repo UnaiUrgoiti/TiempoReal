@@ -38,7 +38,8 @@
     #define TAM_BUFF 11
 
     static const char *TAG = "TiempoReal";
-    uint8_t mensaje_enviar[TAM_BUFF] = "WI:1,1,1,1";
+    uint8_t mensaje_enviar_g1[TAM_BUFF] = "W1:1,1,1,1";
+    uint8_t mensaje_enviar_g2[TAM_BUFF] = "W2:1,1,1,1";
 
     uint8_t I2C_SLAVE_ADDR;
 
@@ -88,8 +89,9 @@ static void uart_send_data(const uint8_t *data) {
 static void uart_periodic_task(void *pvParameters) {
 
     while (1) {
-        uart_send_data(mensaje_enviar); // Función que ya definimos para enviar datos por UART
-        ESP_LOGI(TAG, "Mensaje enviado: %s", mensaje_enviar);
+        uart_send_data(mensaje_enviar_g1); 
+        uart_send_data(mensaje_enviar_g2);
+        ESP_LOGI(TAG, "Mensaje enviado G1: %s G2:%s", mensaje_enviar_g1,mensaje_enviar_g2);
         vTaskDelay(pdMS_TO_TICKS(2000)); // Esperar 2 segundos
     }
 }
@@ -143,7 +145,7 @@ static void spi_task(void *pvParameters) {
 
     spi_transaction_t t = {
         .length = STRING_SIZE * 8,  // Enviar 11 bytes (8 bits cada uno)
-        .tx_buffer = mensaje_enviar,       // Buffer de datos a enviar
+        .tx_buffer = mensaje_enviar_g1,       // Buffer de datos a enviar
         .rx_buffer = NULL           // No necesitamos recibir nada
     };
 
@@ -152,7 +154,7 @@ static void spi_task(void *pvParameters) {
         if (ret != ESP_OK) {
             ESP_LOGE("SPI", "Error en la transmisión SPI");
         } else {
-            ESP_LOGI("SPI", "Datos enviados: %s", mensaje_enviar);
+            ESP_LOGI("SPI", "Datos enviados: %s", mensaje_enviar_g1);
         }
 
         vTaskDelay(pdMS_TO_TICKS(2000));  
@@ -197,7 +199,7 @@ static void search_for_i2c_device(void) {
 
 static void send_initial_message(void) {
 
-    esp_err_t ret = i2c_master_send(mensaje_enviar, sizeof(mensaje_enviar));  // Solo enviamos los datos
+    esp_err_t ret = i2c_master_send(mensaje_enviar_g1, sizeof(mensaje_enviar_g1));  // Solo enviamos los datos
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "Mensaje de inicialización enviado por I2C");
     } else {
@@ -246,8 +248,8 @@ esp_err_t i2c_master_send(const uint8_t *data, size_t data_len) {
 static void i2c_task(void *pvParameters) {
     while (1) {
         // Enviar los datos por I2C
-        ESP_LOGI(TAG, "Enviando datos por I2C: %s", mensaje_enviar);
-        esp_err_t ret = i2c_master_send(mensaje_enviar, sizeof(mensaje_enviar));
+        ESP_LOGI(TAG, "Enviando datos por I2C: %s", mensaje_enviar_g1);
+        esp_err_t ret = i2c_master_send(mensaje_enviar_g1, sizeof(mensaje_enviar_g1));
 
         if (ret == ESP_OK) {
             ESP_LOGI(TAG, "Mensaje enviado correctamente.");
@@ -372,7 +374,10 @@ static void udp_server_task(void *pvParameters)
                 ESP_LOGI(TAG, "Received %d bytes from %s:", len, addr_str);
                 ESP_LOGI(TAG, "%s", rx_buffer);
                 
-                memcpy(mensaje_enviar,rx_buffer, len);
+                if (strncmp(rx_buffer, "W1:", 3) == 0)
+                memcpy(mensaje_enviar_g1,rx_buffer, len);
+                else  if (strncmp(rx_buffer, "W2:", 3) == 0)
+                memcpy(mensaje_enviar_g2,rx_buffer, len);
 
                 led_blink();
                 led_blink();
