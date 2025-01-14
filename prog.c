@@ -14,7 +14,8 @@
 #define SERVER_PORT 3333           // Cambia este puerto por el configurado en tu servidor
 #define TIMEOUT_SECONDS 10         // Tiempo máximo de espera para la respuesta
 #define BUF_SIZE 11
-
+#define BUFER_RECV 128
+#define MENSAJE_SIZE 12
 // Macros
 #ifdef _WIN32
     #define CLEAR_SCREEN() system("cls")
@@ -25,25 +26,36 @@
 // Prototipos
 void *wifi_communication(void *arg);
 void *serial_communication(void *arg);
+void *hilo_procesamiento(void *arg) ;
 void configure_serial_port(int *fd, const char *port);
 void configurar_reles();
 void inicializacion_socket();
 void enviar_comando(const char *comando);
 void log_comando(const char *comando);
+int validar_mensaje(const char *mensaje);
 
 // Variables
 int sockfd;
 struct sockaddr_in server_addr;
 char message[BUF_SIZE];
 char buffer[BUF_SIZE];
+char shared_buffer[BUFER_RECV];
 socklen_t addr_len = sizeof(server_addr);
 int estado_reles[4] = {0, 0, 0, 0}; // 0 = apagado, 1 = encendido
 int grupo = 0;
+int grupo_recv;
+int estado_reles_recv[4];
+int head = 0;
+int tail = 0;
+
+pthread_mutex_t buffer_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Menú principal
 int main() {
-    pthread_t wifi_thread, serial_thread;
+    pthread_t wifi_thread, serial_thread,procesamiento_thread;
     int choice;
+
+    pthread_create(&serial_thread, NULL, serial_communication, NULL);
 
     while (1) {
         CLEAR_SCREEN(); // Limpiar pantalla al entrar al menú
@@ -76,23 +88,42 @@ int main() {
                 }
                 break;
             case 3:
-                if (pthread_create(&serial_thread, NULL, serial_communication, NULL) != 0) {
+                if (pthread_create(&procesamiento_thread, NULL, hilo_procesamiento, NULL)!= 0) {
                     perror("Failed to create Serial thread");
                 } else {
-                    pthread_join(serial_thread, NULL); // Espera a que el hilo termine
+                    pthread_join(serial_thread, NULL); 
                 }
                 break;
             case 0:
-                printf("Exiting program...\n");// Buffer para el comando
+                printf("Exiting program...\n");
                 exit(0);
             default:
                 printf("Invalid option. Please try again.\n");
         }
 
-        sleep(3); // Esperar 3 segundos antes de volver al menú principal
+        sleep(3); 
     }
 
     return 0;
+}
+
+int validar_mensaje(const char *mensaje) {
+    if (mensaje[0] == 'S') {
+        return 1;
+    }
+    return 0;
+};
+
+void procesar_datos(const char *data) {
+
+    CLEAR_SCREEN();
+    if (sscanf(data, "S%d:%d,%d,%d,%d", &grupo, &estado_reles_recv[0], &estado_reles_recv[1], &estado_reles_recv[2], &estado_reles_recv[3]) == 5) {
+        fprintf(stderr,"Grupo: %d\n", grupo);
+        fprintf(stderr,"Estado de los relés: %d, %d, %d, %d\n", estado_reles_recv[0], estado_reles_recv[1], estado_reles_recv[2], estado_reles_recv[3]);
+    } else {
+        fprintf(stderr, "Formato de datos inválido: %s\n", data);
+    }
+    usleep(1000000);
 }
 
 // Inicialización del socket UDP
@@ -211,17 +242,66 @@ void *serial_communication(void *arg) {
        return 1;
    }
    // read from the serial port
-   while(1)
-   {
-       char buffer[5];
-       memset(buffer, 0, sizeof(buffer));
-       int num_bytes = read(serial_port, buffer, sizeof(buffer));
-       if (num_bytes == 5) {
-           printf("Read %d bytes: %s\n", num_bytes, buffer);
-       }
-   }
-   close(serial_port);
-   return 0;
+    char temp_buffer[16];
+    while (1) {
+        int num_bytes = read(serial_port, temp_buffer, sizeof(temp_buffer));
+        if (num_bytes > 0) {
+            pthread_mutex_lock(&buffer_mutex);
+
+            for (int i = 0; i < num_bytes; i++) {
+                shared_buffer[tail] = temp_buffer[i];
+                tail = (tail + 1) % BUFER_RECV;
+
+                // Evitar sobrescribir datos no procesados
+                if (tail == head) {
+                    //fprintf(stderr, "Buffer circular lleno. Descartando datos.\n");
+                    head = tail;
+                }
+            }
+
+            pthread_mutex_unlock(&buffer_mutex);
+        } else if (num_bytes < 0) {
+            perror("Error al leer del puerto serie");
+            break;
+        }
+    }
+
+    close(serial_port);
+    return NULL;
 }
 
 
+void *hilo_procesamiento(void *arg) {
+    char mensaje[MENSAJE_SIZE + 1];
+    memset(mensaje, 0, sizeof(mensaje));
+
+    while (1) {
+        pthread_mutex_lock(&buffer_mutex);
+
+        // Comprobar si hay suficientes datos para un mensaje completo
+        while ((tail - head + BUFER_RECV) % BUFER_RECV >= MENSAJE_SIZE) {
+            // Leer un posible mensaje
+            for (int i = 0; i < MENSAJE_SIZE; i++) {
+                mensaje[i] = shared_buffer[head];
+                head = (head + 1) % BUFER_RECV;
+            }
+            mensaje[MENSAJE_SIZE] = '\0';
+
+            // Validar mensaje y procesar
+            if (validar_mensaje(mensaje)) {
+                pthread_mutex_unlock(&buffer_mutex);
+                procesar_datos(mensaje);
+            } else {
+                //fprintf(stderr, "\nMensaje inválido. Sincronizando...\n");
+                // Sincronizar buscando el inicio del próximo mensaje
+                while (head != tail && shared_buffer[head] != 'S') {
+                    head = (head + 1) % BUFER_RECV;
+                }
+                pthread_mutex_unlock(&buffer_mutex);
+            }
+        }
+        pthread_mutex_unlock(&buffer_mutex);
+        usleep(1500); // Esperar antes de intentar procesar nuevamente
+    }
+    return NULL;
+}
