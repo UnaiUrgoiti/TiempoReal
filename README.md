@@ -41,3 +41,5 @@ En el lado del cliente del usuario, tal como se ha explicado antes, se encuentra
 Los dos primeros crearan un thread cada uno donde se primero se configuraran los relés y después se gestionarán las comunicaciones con los dispositivos correspondientes.
 
 Adicionalmente, también se crea un archivo log con los comandos utilizados en cada momento con fecha.
+
+Link de descarga del proyecto completo: [aqui](https://drive.google.com/drive/folders/1mLJFipth9UwG0a92lwPpOJkRWIkloVBc?usp=drive_link)
