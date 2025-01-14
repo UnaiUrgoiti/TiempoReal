@@ -6,7 +6,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2025 STMicroelectronics.
+  * Copyright (c) 2024 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -22,7 +22,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <string.h>
 #include <stdio.h>
 
 /* USER CODE END Includes */
@@ -34,10 +33,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define GRUPO_1 1
-#define GRUPO_2 2
-volatile uint8_t grupo;
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -46,7 +41,6 @@ volatile uint8_t grupo;
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* Definitions for defaultTask */
@@ -60,14 +54,14 @@ const osThreadAttr_t defaultTask_attributes = {
 osThreadId_t Transmit_LEDHandle;
 const osThreadAttr_t Transmit_LED_attributes = {
   .name = "Transmit_LED",
-  .stack_size = 2500 * 4,
+  .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
-/* Definitions for TaskComunicacio */
-osThreadId_t TaskComunicacioHandle;
-const osThreadAttr_t TaskComunicacio_attributes = {
-  .name = "TaskComunicacio",
-  .stack_size = 1000 * 4,
+/* Definitions for I2C_communicati */
+osThreadId_t I2C_communicatiHandle;
+const osThreadAttr_t I2C_communicati_attributes = {
+  .name = "I2C_communicati",
+  .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for myQueue01 */
@@ -85,14 +79,11 @@ osEventFlagsId_t Data_receivedHandle;
 const osEventFlagsAttr_t Data_received_attributes = {
   .name = "Data_received"
 };
-/* Definitions for Data_ready */
-osEventFlagsId_t Data_readyHandle;
-const osEventFlagsAttr_t Data_ready_attributes = {
-  .name = "Data_ready"
-};
 /* USER CODE BEGIN PV */
 
 int valores_relays[4] = {0, 0, 0, 0};
+uint8_t tx_buff[5] = { '0', '0', '0', '0', '\0'};
+
 
 /* USER CODE END PV */
 
@@ -100,100 +91,125 @@ int valores_relays[4] = {0, 0, 0, 0};
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
-static void MX_USART1_UART_Init(void);
 void StartDefaultTask(void *argument);
 void StartTaskLTx_LED(void *argument);
-void StartTaskCOMMS(void *argument);
+void I2Ctask(void *argument);
 
 /* USER CODE BEGIN PFP */
-// Tamaño del buffer de recepción
 
-#define BUFFER_SIZE 16
-
-// Variables globales
-uint8_t rx_buffer[BUFFER_SIZE];
-uint8_t tx_buffer[BUFFER_SIZE];
-uint8_t rx_index = 0;
-uint8_t tx_index = 0;
-
-char received_string[BUFFER_SIZE]; // String recibido
-
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) ;
-void inicializar_reles();
-void rele_on(uint8_t v);
-void rele_off(uint8_t v);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void inicializar_reles()
-{
-		rele_on(0);
-	    osDelay(100);
-	    rele_off(0);
-	    rele_on(1);
-	    osDelay(100);
-	    rele_on(2);
-	    osDelay(100);
-	    rele_off(0);
-	    rele_on(3);
-	    osDelay(100);
-	    rele_off(2);
-	    rele_on(4);
-	    osDelay(100);
-	    rele_off(3);
-	    osDelay(100);
-	    rele_off(4);
-}
-
-void rele_on(uint8_t v)
+void led_on(uint8_t v)
 {
 	switch(v)
 	{
 	case 0:
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
 		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_SET);
 		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_SET);
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_SET);
+		valores_relays[0]=1;
+		valores_relays[1]=1;
+		valores_relays[2]=1;
+		valores_relays[3]=1;
 		break;
 	case 1:
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
+		valores_relays[0]=1;
 		break;
 	case 2:
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_SET);
+		valores_relays[1]=1;
 		break;
 	case 3:
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_SET);
+		valores_relays[2]=1;
 		break;
 	case 4:
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_SET);
+		valores_relays[3]=1;
 		break;
 
 	}
 }
-void rele_off(uint8_t v)
+void led_off(uint8_t v)
 {
 	switch(v)
 	{
 	case 0:
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
 		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_RESET);
 		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_RESET);
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_RESET);
+		valores_relays[0]=0;
+		valores_relays[1]=0;
+		valores_relays[2]=0;
+		valores_relays[3]=0;
 		break;
 	case 1:
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
+		valores_relays[0]=0;
 		break;
 	case 2:
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_RESET);
+		valores_relays[1]=0;
 		break;
 	case 3:
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_RESET);
+		valores_relays[2]=0;
 		break;
 	case 4:
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3, GPIO_PIN_RESET);
+		valores_relays[3]=0;
 		break;
 
+	}
+}
+void led_toggle(uint8_t v)
+{
+	switch(v)
+	{
+	case 0:
+		HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_9);
+		HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_8);
+		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_10);
+		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+		valores_relays[0]^=1;
+		valores_relays[1]^=1;
+		valores_relays[2]^=1;
+		valores_relays[3]^=1;
+		break;
+	case 1:
+		HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_9);
+		valores_relays[0]^=1;
+		break;
+	case 2:
+		HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_8);
+		valores_relays[1]^=1;
+		break;
+	case 3:
+		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_10);
+		valores_relays[2]^=1;
+		break;
+	case 4:
+		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+		valores_relays[3]^=1;
+		break;
+
+	}
+}
+
+uint8_t leer_pulsador(uint8_t boton)
+{
+	if(boton)
+	{
+		return HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_4);
+	}
+	else
+	{
+		return !HAL_GPIO_ReadPin(GPIOC, B1_Pin);
 	}
 }
 
@@ -206,7 +222,6 @@ void rele_off(uint8_t v)
   */
 int main(void)
 {
-
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -230,9 +245,8 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
-  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  HAL_UART_Receive_IT(&huart1, &rx_buffer[rx_index], 1);
+
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -255,7 +269,7 @@ int main(void)
 
   /* Create the queue(s) */
   /* creation of myQueue01 */
-  myQueue01Handle = osMessageQueueNew (512, sizeof(uint16_t), &myQueue01_attributes);
+  myQueue01Handle = osMessageQueueNew (32, sizeof(uint32_t), &myQueue01_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -268,8 +282,8 @@ int main(void)
   /* creation of Transmit_LED */
   Transmit_LEDHandle = osThreadNew(StartTaskLTx_LED, NULL, &Transmit_LED_attributes);
 
-  /* creation of TaskComunicacio */
-  TaskComunicacioHandle = osThreadNew(StartTaskCOMMS, NULL, &TaskComunicacio_attributes);
+  /* creation of I2C_communicati */
+  I2C_communicatiHandle = osThreadNew(I2Ctask, NULL, &I2C_communicati_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -278,18 +292,15 @@ int main(void)
   /* creation of Data_received */
   Data_receivedHandle = osEventFlagsNew(&Data_received_attributes);
 
-  /* creation of Data_ready */
-  Data_readyHandle = osEventFlagsNew(&Data_ready_attributes);
-
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
+
   /* USER CODE END RTOS_EVENTS */
 
   /* Start scheduler */
   osKernelStart();
 
   /* We should never get here as control is now taken by the scheduler */
-
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
@@ -297,7 +308,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
   }
   /* USER CODE END 3 */
 }
@@ -349,39 +359,6 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART1_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART1_Init 0 */
-
-  /* USER CODE END USART1_Init 0 */
-
-  /* USER CODE BEGIN USART1_Init 1 */
-
-  /* USER CODE END USART1_Init 1 */
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART1_Init 2 */
-
-  /* USER CODE END USART1_Init 2 */
-
-}
-
-/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -422,8 +399,6 @@ static void MX_USART2_UART_Init(void)
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
@@ -432,10 +407,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, LD2_Pin|Rele_1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, LD2_Pin|GPIO_PIN_8|GPIO_PIN_9, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, Rele_2_Pin|Rele_3_Pin|Rele_4_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10|GPIO_PIN_3, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
@@ -443,43 +418,42 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LD2_Pin Rele_1_Pin */
-  GPIO_InitStruct.Pin = LD2_Pin|Rele_1_Pin;
+  /*Configure GPIO pins : LD2_Pin PA8 PA9 */
+  GPIO_InitStruct.Pin = LD2_Pin|GPIO_PIN_8|GPIO_PIN_9;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : Rele_2_Pin Rele_3_Pin Rele_4_Pin */
-  GPIO_InitStruct.Pin = Rele_2_Pin|Rele_3_Pin|Rele_4_Pin;
+  /*Configure GPIO pins : PB10 PB3 */
+  GPIO_InitStruct.Pin = GPIO_PIN_10|GPIO_PIN_3;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : PB4 */
+  GPIO_InitStruct.Pin = GPIO_PIN_4;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
   /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI4_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI4_IRQn);
+
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
-// Callback de recepción
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 
-    if (huart->Instance == USART1) {
-
-    	uint8_t data = rx_buffer[0];
-
-    	osMutexAcquire(MutexComunicacionHandle, osWaitForever);
-    	osMessageQueuePut(myQueue01Handle, &data, 0, 0);
-    	osMutexRelease(MutexComunicacionHandle);
-
-        HAL_UART_Receive_IT(&huart1, &rx_buffer[rx_index], 1);
-    }
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef * huart2)
+{
+	HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
 }
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -510,130 +484,47 @@ void StartDefaultTask(void *argument)
 void StartTaskLTx_LED(void *argument)
 {
   /* USER CODE BEGIN StartTaskLTx_LED */
-	uint8_t grupo_recibido;
-	uint8_t valores_relays_recv[4]={0};
-	char rx_data;
-	char command_buffer[16] = {0};
-	uint8_t buffer_pos = 0;
-	grupo = GRUPO_1;
+	uint32_t message;
+  /* Infinite loop */
+  for(;;)
+  {
+	  if(osEventFlagsGet(Data_receivedHandle) == 1)
+	  {
+		  osMutexAcquire(MutexComunicacionHandle, osWaitForever);
 
-	inicializar_reles();
+		  for(int i = 0; i<4; i++)
+		  {
+			  osMessageQueueGet(myQueue01Handle, &message, 0, osWaitForever);
+			  sprintf((char*)tx_buff[i], "%lu", message);
+		  }
 
-	    /* Infinite loop */
-	    for (;;)
-	    {
-	        // Esperar datos de la cola
-	        if (osMessageQueueGet(myQueue01Handle, &rx_data, NULL, osWaitForever) == osOK)
-	        {
-	            // Almacenar en el buffer mientras no se desborde
-	            if (buffer_pos < sizeof(command_buffer) - 1)
-	            {
-	                command_buffer[buffer_pos++] = rx_data;
-	            }
+		  HAL_UART_Transmit_IT(&huart2, tx_buff, sizeof(tx_buff));
+		  osEventFlagsClear(Data_receivedHandle, 1);
+		  osMutexRelease(MutexComunicacionHandle);
+		  osDelay(1000);
+	  }
+	  osDelay(1);
 
-
-	            if (buffer_pos >= 10) // Longitud esperada: "WI:x,x,x,x"
-	            {
-	                command_buffer[buffer_pos] = '\0'; // Termina la cadena
-
-	                int grupo_recibido = 0;
-	                // Procesar el comando recibido
-	                if (sscanf(command_buffer, "W%d:%d,%d,%d,%d",&grupo_recibido,
-	                           &valores_relays_recv[0], &valores_relays_recv[1],
-	                           &valores_relays_recv[2], &valores_relays_recv[3]) == 5)
-	                {
-	                    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-
-	                    if(grupo_recibido==grupo)
-	                    {
-	                    	for (int i = 0; i < 4; i++)
-	                    	    {
-	                    	        valores_relays[i] = valores_relays_recv[i];
-	                    	    }
-	                    }
-
-	                    // Enviar respuesta por UART2
-	                    HAL_UART_Transmit(&huart2, (uint8_t *)command_buffer, strlen(command_buffer), HAL_MAX_DELAY); //Crashea
-
-	                    // Activar bandera de evento
-	                    osEventFlagsSet(Data_receivedHandle, 0x01);
-
-	                    // Imprimir el comando recibido
-	                    printf("Recibido: %s\n", command_buffer);
-	                }
-
-	                // Reiniciar buffer
-	                memset(command_buffer, 0, sizeof(command_buffer));
-	                buffer_pos = 0;
-	            }
-	        }
-
-	        // Verificar bandera de evento para procesar relés
-	        if (osEventFlagsGet(Data_receivedHandle) == 0x01)
-	        {
-	            osMutexAcquire(MutexComunicacionHandle, osWaitForever);
-
-	            // Gestionar los relés
-	            for (uint8_t i = 0; i < 4; i++)
-	            {
-	                if (valores_relays[i] == 1)
-	                {
-	                    rele_on(i + 1); // Encender relés
-	                }
-	                else
-	                {
-	                    rele_off(i + 1); // Apagar relés
-	                }
-	            }
-	            osEventFlagsSet(Data_readyHandle, 0x02);
-
-	            osEventFlagsClear(Data_receivedHandle, 0x01);
-	            osMutexRelease(MutexComunicacionHandle);
-	        }
-
-	        osDelay(1); // Evitar consumo excesivo de CPU
-	    }
+  }
   /* USER CODE END StartTaskLTx_LED */
 }
 
-/* USER CODE BEGIN Header_StartTaskCOMMS */
+/* USER CODE BEGIN Header_I2Ctask */
 /**
-* @brief Function implementing the TaskComunicacio thread.
+* @brief Function implementing the I2C_communicati thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_StartTaskCOMMS */
-void StartTaskCOMMS(void *argument)
+/* USER CODE END Header_I2Ctask */
+void I2Ctask(void *argument)
 {
-  /* USER CODE BEGIN StartTaskCOMMS */
+  /* USER CODE BEGIN I2Ctask */
   /* Infinite loop */
-	for (;;)
-	{
-	    if (osEventFlagsGet(Data_readyHandle) == 0x02)
-	    {
-	        osMutexAcquire(MutexComunicacionHandle, osWaitForever);
-
-	        // Añadir "ST:" al inicio del buffer
-	        int pos = 0; // Posición en el buffer
-	        pos += sprintf((char*)tx_buffer, "ST:");
-
-	        // Añadir los valores de los relés al buffer
-	        for (int i = 0; i < 4; i++)
-	        {
-	            pos += sprintf((char*)tx_buffer + pos, "%lu,", valores_relays[i]);
-	        }
-
-	        // Transmitir el buffer completo
-	        HAL_UART_Transmit_IT(&huart2, (uint8_t*)tx_buffer, pos);
-
-	        osEventFlagsClear(Data_readyHandle, 0x02);
-	        osMutexRelease(MutexComunicacionHandle);
-
-	        osDelay(1000); // Tiempo de espera entre procesamientos de datos
-	    }
-	    osDelay(1); // Evitar bloqueo innecesario
-	}
-  /* USER CODE END StartTaskCOMMS */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END I2Ctask */
 }
 
 /**
